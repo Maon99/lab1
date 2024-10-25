@@ -1,184 +1,10 @@
-    Private Sub load_statusModel()
-        Dim connect As New OracleConnection(DB400)
-        Dim command As New OracleCommand("SELECT m1.MACHINEADD, m1.MODELADD, m1.STATUSADD, m1.START_TIME " &
-                                     "FROM MONFORTEST m1 " &
-                                     "INNER JOIN (SELECT MODELADD, MAX(START_TIME) AS MaxSTART_TIME " &
-                                     "            FROM MONFORTEST " &
-                                     "            WHERE ACTION_ID = 0 " &
-                                     "            GROUP BY MODELADD ,MACHINEADD ) m2 " &
-                                     "ON m1.MODELADD = m2.MODELADD AND m1.START_TIME = m2.MaxSTART_TIME " &
-                                     "WHERE m1.ACTION_ID = 0" &
-                                     "ORDER BY START_TIME DESC ", connect)
-        Try
-            connect.Open()
-            Dim reader As OracleDataReader = command.ExecuteReader()
+Private Function InsertOrUpdateModelStatus(command As OracleCommand, machineadd As String, modelAdd As String, statusAdd As String) As Integer
+    Dim rowsAffected As Integer = 0
+    Dim tokenId As String = ""
+    Dim hashedToken As String = ""
 
-            ' Clear table before adding new rows
-            Table1.Rows.Clear()
-
-            ' Add header row
-            Dim headerRow As New TableRow()
-            headerRow.Cells.Add(New TableCell() With {.Text = "Machine"})
-            headerRow.Cells.Add(New TableCell() With {.Text = "Model"})
-            headerRow.Cells.Add(New TableCell() With {.Text = "Status"})
-            headerRow.Cells.Add(New TableCell() With {.Text = "TIMER"})
-
-            Table1.Rows.Add(headerRow)
-
-            ' Loop through the data from the database
-            While reader.Read()
-                Dim currentTime As DateTime = DateTime.Now
-                Dim timeFromDB As DateTime = CType(reader("START_TIME"), DateTime)
-                Dim timeDifference As TimeSpan = currentTime - timeFromDB
-                Dim minutesPassed As Integer = CInt(timeDifference.TotalMinutes)
-
-                Dim row As New TableRow()
-                row.Cells.Add(New TableCell() With {.Text = reader("MACHINEADD").ToString()})
-                row.Cells.Add(New TableCell() With {.Text = reader("MODELADD").ToString()})
-                row.Cells.Add(New TableCell() With {.Text = reader("STATUSADD").ToString()})
-                'row.Cells.Add(New TableCell() With {.Text = CType(reader("START_TIME"), DateTime).ToString("dd-MM-yyyy HH:mm:ss")})
-                row.Cells.Add(New TableCell() With {.Text = minutesPassed.ToString()})
-                Table1.Rows.Add(row)
-            End While
-
-        Catch ex As Exception
-            ' Handle exception
-            Response.Write("Error: " & ex.Message)
-        Finally
-            connect.Close()
-        End Try
-
-    End Sub
-    Protected Sub ddlMachine_SelectedIndexChanged(ByVal sender As Object, ByVal e As EventArgs) Handles ddlMachine.SelectedIndexChanged
-        ModelDropdown()
-    End Sub
-
-    Private Sub MachineDropdown()
-        Dim connect As New OracleConnection(DB400)
-        Dim command As New OracleCommand("select substr(MCNAME,1,instr(MCNAME,'|',1,1)-1) as MC " &
-"from PST_003_MC " &
-"WHERE MAC_BLOCK = 'PRESS MACHINE' OR MAC_BLOCK = 'INJECTION  MACHINE' OR MAC_BLOCK = 'PLASTIC INJECTION MACHINE'" &
-"group by substr(MCNAME,1,instr(MCNAME,'|',1,1)-1) " &
-"order by length(substr(MCNAME,1,instr(MCNAME,'|',1,1)-1)) asc, substr(MCNAME,1,instr(MCNAME,'|',1,1)-1) asc", connect)
-        Try
-            connect.Open()
-            Dim reader As OracleDataReader = command.ExecuteReader()
-            ddlMachine.Items.Clear()
-            ddlMachine.Items.Add(New ListItem("Select a Machine", ""))
-            While reader.Read()
-                ddlMachine.Items.Add(New ListItem(reader("MC").ToString(), reader("MC").ToString()))
-            End While
-        Catch ex As Exception
-            ' Handle exception
-            Response.Write("Error: " & ex.Message)
-        Finally
-            connect.Close()
-        End Try
-    End Sub
-
-    Private Sub ModelDropdown()
-        If ddlMachine.SelectedValue = "" Then
-            ddlModeladd.Items.Clear()
-            ddlModeladd.Items.Add(New ListItem("Select a Model", ""))
-            Return
-        End If
-
-        Dim connect As New OracleConnection(DB400)
-        Dim command As New OracleCommand("select substr(MCNAME,instr(MCNAME,'|',1,1)+1,length(MCNAME)) as MODEL " &
-"from PST_003_MC " &
-"where substr(MCNAME,1,instr(MCNAME,'|',1,1)-1) = :machineValue " &
-"group by substr(MCNAME,instr(MCNAME,'|',1,1)+1,length(MCNAME)) " &
-"order by substr(MCNAME,instr(MCNAME,'|',1,1)+1,length(MCNAME)) asc", connect)
-
-        command.Parameters.Add(":machineValue", OracleDbType.Varchar2).Value = ddlMachine.SelectedValue
-
-        Try
-            connect.Open()
-            Dim reader As OracleDataReader = command.ExecuteReader()
-            ddlModeladd.Items.Clear()
-            ddlModeladd.Items.Add(New ListItem("Select a Model", ""))
-            While reader.Read()
-                ddlModeladd.Items.Add(New ListItem(reader("MODEL").ToString(), reader("MODEL").ToString()))
-            End While
-        Catch ex As Exception
-            ' Handle exception
-            Response.Write("Error: " & ex.Message)
-        Finally
-            connect.Close()
-        End Try
-    End Sub
-
-    Protected Sub UpdateInsertAdd_Click(sender As Object, e As EventArgs)
-        ' Get the input values from the textboxes
-        Dim modelAdd As String = ddlModeladd.SelectedValue()
-        Dim statusAdd As String = txtStatus.Text.Trim()
-        Dim machineadd As String = ddlMachine.SelectedValue()
-        ' Check if the inputs are not empty
-        If String.IsNullOrEmpty(modelAdd) Or String.IsNullOrEmpty(statusAdd) Then
-            ShowMessage("Please enter both Model and Status.", System.Drawing.Color.Red)
-            Return
-        End If
-
-        ' Connect to the database
-        Dim connect As New OracleConnection(DB400)
-        Dim command As New OracleCommand()
-        command.Connection = connect
-        Dim transaction As OracleTransaction = Nothing
-
-        Try
-            connect.Open()
-            LogMessage("Database connection opened successfully.")
-
-            ' Start a transaction
-            transaction = connect.BeginTransaction()
-            command.Transaction = transaction
-
-            Dim rowsAffected As Integer = InsertOrUpdateModelStatus(command, machineadd, modelAdd, statusAdd)
-
-            ' Check if the operation was successful
-            If rowsAffected > 0 Then
-                transaction.Commit()
-                ShowMessage("Record updated successfully!", System.Drawing.Color.Green)
-                LogMessage(String.Format("Operation successful. {0} row(s) affected. Transaction committed.", rowsAffected))
-
-                ' Clear the textboxes after operation
-                txtStatus.Text = ""
-                ddlMachine.SelectedIndex = 0
-                ddlModeladd.SelectedIndex = 0
-
-
-                ' Refresh the dropdown and table
-                MachineDropdown()
-                load_statusModel()
-            Else
-                transaction.Rollback()
-                ShowMessage("Operation failed. No rows were affected. Please check your data and try again.", System.Drawing.Color.Red)
-                LogMessage("Operation failed. No rows were affected. Transaction rolled back.")
-            End If
-
-        Catch ex As OracleException
-            ' Handle specific database errors
-            If transaction IsNot Nothing Then
-                transaction.Rollback()
-                LogMessage("Transaction rolled back due to exception.")
-            End If
-            ShowMessage("Database error: " & ex.Message, System.Drawing.Color.Red)
-            LogMessage("Database error occurred: " & ex.Message)
-            LogMessage("Oracle Error Number: " & ex.Number.ToString())
-            LogMessage("Oracle Error Message: " & ex.Message)
-        Finally
-            connect.Close()
-            LogMessage("Database connection closed.")
-        End Try
-    End Sub
-
-    Private Function InsertOrUpdateModelStatus(command As OracleCommand, machineadd As String, modelAdd As String, statusAdd As String) As Integer
-        Dim rowsAffected As Integer = 0
-        Dim tokenId As String = ""
-        Dim hashedToken As String = ""
-
-        ' First, check the latest status and ACTION_ID for this machine and model combination
-        command.CommandText = "SELECT m1.STATUSADD, m1.TOKEN_ID, m1.START_TIME, m1.ACTION_ID " &
+    ' First, check the latest status and ACTION_ID for this machine and model combination
+    command.CommandText = "SELECT m1.STATUSADD, m1.TOKEN_ID, m1.START_TIME, m1.ACTION_ID " &
                  "FROM MONFORTEST m1 " &
                  "INNER JOIN (SELECT MACHINEADD, MODELADD, MAX(START_TIME) AS MaxSTART_TIME " &
                  "            FROM MONFORTEST " &
@@ -189,39 +15,49 @@
                  "WHERE m1.MACHINEADD = :machineadd " &
                  "AND m1.MODELADD = :modelAdd"
 
-        command.Parameters.Clear()
-        command.Parameters.Add(New OracleParameter("machineadd", machineadd))
-        command.Parameters.Add(New OracleParameter("modelAdd", modelAdd))
+    command.Parameters.Clear()
+    command.Parameters.Add(New OracleParameter("machineadd", machineadd))
+    command.Parameters.Add(New OracleParameter("modelAdd", modelAdd))
 
-        Dim reader As OracleDataReader = command.ExecuteReader()
-        Dim previousStatus As String = ""
-        Dim previousTokenId As String = ""
-        Dim lastStartTime As DateTime? = Nothing
-        Dim previousActionId As Integer = 0
+    Dim reader As OracleDataReader = command.ExecuteReader()
+    Dim previousStatus As String = ""
+    Dim previousTokenId As String = ""
+    Dim lastStartTime As DateTime? = Nothing
+    Dim previousActionId As Integer = 0
 
-        If reader.Read() Then
-            previousStatus = reader("STATUSADD").ToString().ToUpper()
-            previousActionId = Convert.ToInt32(reader("ACTION_ID"))
-            If Not reader.IsDBNull(reader.GetOrdinal("TOKEN_ID")) Then
-                previousTokenId = reader("TOKEN_ID").ToString()
-            End If
-            If Not reader.IsDBNull(reader.GetOrdinal("START_TIME")) Then
-                lastStartTime = CType(reader("START_TIME"), DateTime)
-            End If
+    If reader.Read() Then
+        previousStatus = reader("STATUSADD").ToString().ToUpper()
+        previousActionId = Convert.ToInt32(reader("ACTION_ID"))
+        If Not reader.IsDBNull(reader.GetOrdinal("TOKEN_ID")) Then
+            previousTokenId = reader("TOKEN_ID").ToString()
         End If
-        reader.Close()
+        If Not reader.IsDBNull(reader.GetOrdinal("START_TIME")) Then
+            lastStartTime = CType(reader("START_TIME"), DateTime)
+        End If
+    End If
+    reader.Close()
 
-        ' ตรวจสอบว่าต้องสร้าง TOKEN_ID ใหม่หรือไม่
-        Dim needNewToken As Boolean = False
+    ' ตรวจสอบว่าต้องสร้าง TOKEN_ID ใหม่หรือไม่
+    Dim needNewToken As Boolean = False
 
-        ' กรณีที่ไม่มี record ก่อนหน้า หรือ record ก่อนหน้ามี ACTION_ID = 1 และ status ปัจจุบันไม่ใช่ "end"
-        If (String.IsNullOrEmpty(previousTokenId) OrElse previousActionId = 1) AndAlso statusAdd.ToLower() <> "end" Then
-            needNewToken = True
+    ' กรณีที่ไม่มี record ก่อนหน้า หรือ record ก่อนหน้ามี ACTION_ID = 1 และ status ปัจจุบันไม่ใช่ "end"
+    If (String.IsNullOrEmpty(previousTokenId) OrElse previousActionId = 1) AndAlso statusAdd.ToLower() <> "end" Then
+        needNewToken = True
+    End If
+
+    ' อัพเดท FINISH_TIME และ MINUTES_PASSED ของ record ก่อนหน้าที่มี TOKEN_ID เดียวกัน
+    If Not String.IsNullOrEmpty(previousTokenId) AndAlso Not needNewToken Then
+        ' คำนวณ minutesPassed
+        Dim currentTime As DateTime = DateTime.Now
+        Dim minutesPassed As Integer = 0
+        If lastStartTime.HasValue Then
+            Dim timeDifference As TimeSpan = currentTime - lastStartTime.Value
+            minutesPassed = CInt(timeDifference.TotalMinutes)
         End If
 
-        ' อัพเดท FINISH_TIME ของ record ก่อนหน้าที่มี TOKEN_ID เดียวกัน
-        If Not String.IsNullOrEmpty(previousTokenId) AndAlso Not needNewToken Then
-            Dim updateFinishTimeSQL As String = "UPDATE MONFORTEST SET FINISH_TIME = SYSTIMESTAMP " &
+        Dim updateFinishTimeSQL As String = "UPDATE MONFORTEST SET " &
+                                  "FINISH_TIME = SYSTIMESTAMP, " &
+                                  "MINUTES_PASSED = :minutesPassed " &
                                   "WHERE MACHINEADD = :machineadd " &
                                   "AND MODELADD = :modelAdd " &
                                   "AND TOKEN_ID = :previousToken " &
@@ -230,84 +66,85 @@
                                   "                  AND MODELADD = :modelAdd " &
                                   "                  AND TOKEN_ID = :previousToken)"
 
-            command.CommandText = updateFinishTimeSQL
-            command.Parameters.Clear()
-            command.Parameters.Add(New OracleParameter("machineadd", machineadd))
-            command.Parameters.Add(New OracleParameter("modelAdd", modelAdd))
-            command.Parameters.Add(New OracleParameter("previousToken", previousTokenId))
+        command.CommandText = updateFinishTimeSQL
+        command.Parameters.Clear()
+        command.Parameters.Add(New OracleParameter("machineadd", machineadd))
+        command.Parameters.Add(New OracleParameter("modelAdd", modelAdd))
+        command.Parameters.Add(New OracleParameter("previousToken", previousTokenId))
+        command.Parameters.Add(New OracleParameter("minutesPassed", minutesPassed))
 
-            rowsAffected += command.ExecuteNonQuery()
-            LogMessage(String.Format("Updated FINISH_TIME for previous record with Token: {0}", previousTokenId))
-        End If
+        rowsAffected += command.ExecuteNonQuery()
+        LogMessage(String.Format("Updated FINISH_TIME and MINUTES_PASSED for previous record with Token: {0}", previousTokenId))
+    End If
 
-        ' ถ้าสถานะปัจจุบันเป็น "END" ให้อัพเดท ACTION_ID = 1 ของ record ล่าสุด
-        If statusAdd.ToLower() = "end" Then
-            Dim updateActionSQL As String = "UPDATE MONFORTEST SET ACTION_ID = 1 " &
+    ' ถ้าสถานะปัจจุบันเป็น "END" ให้อัพเดท ACTION_ID = 1 ของ record ล่าสุด
+    If statusAdd.ToLower() = "end" Then
+        Dim updateActionSQL As String = "UPDATE MONFORTEST SET ACTION_ID = 1 " &
                                   "WHERE MACHINEADD = :machineadd " &
                                   "AND MODELADD = :modelAdd " &
                                   "AND TOKEN_ID = :previousToken " &
                                   "AND ACTION_ID = 0"
 
-            command.CommandText = updateActionSQL
-            command.Parameters.Clear()
-            command.Parameters.Add(New OracleParameter("machineadd", machineadd))
-            command.Parameters.Add(New OracleParameter("modelAdd", modelAdd))
-            command.Parameters.Add(New OracleParameter("previousToken", previousTokenId))
-
-            rowsAffected += command.ExecuteNonQuery()
-            LogMessage(String.Format("Updated ACTION_ID to 1 for latest record with Token: {0}", previousTokenId))
-        End If
-
-        ' สร้าง TOKEN_ID ใหม่ถ้าจำเป็น
-        If needNewToken Then
-            ' Get the current count of tokens for this machine-model combination
-            command.CommandText = "SELECT COUNT(DISTINCT TOKEN_ID) as TokenCount " &
-                    "FROM MONFORTEST " &
-                    "WHERE MACHINEADD = :machineadd " &
-                    "AND MODELADD = :modelAdd"
-            command.Parameters.Clear()
-            command.Parameters.Add(New OracleParameter("machineadd", machineadd))
-            command.Parameters.Add(New OracleParameter("modelAdd", modelAdd))
-
-            Dim tokenCount As Integer = CInt(command.ExecuteScalar()) + 1
-
-            ' Generate new token combining machine, model, and sequence number
-            Dim timestamp As DateTime = DateTime.Now
-            tokenId = String.Format("{0}{1}",
-                      timestamp.ToString("yyMMddHHmmss"),
-                      tokenCount.ToString().PadLeft(4, "0"c))
-
-            hashedToken = tokenId
-            LogMessage(String.Format("Generated new Token: {0} for Machine: {1}, Model: {2}", hashedToken, machineadd, modelAdd))
-        Else
-            ' ใช้ TOKEN_ID เดิม
-            hashedToken = previousTokenId
-            LogMessage(String.Format("Using existing Token: {0} for Machine: {1}, Model: {2}", hashedToken, machineadd, modelAdd))
-        End If
-
-        ' Insert new record
-        Dim insertSQL As String
-        If statusAdd.ToLower() = "end" Then
-            insertSQL = "INSERT INTO MONFORTEST (MACHINEADD, MODELADD, STATUSADD, ACTION_ID, " &
-           "START_TIME, FINISH_TIME, TOKEN_ID) " &
-           "VALUES (:machineadd, :modelAdd, :statusAdd, 1, SYSTIMESTAMP, " &
-           "SYSTIMESTAMP, :hashedToken)"
-        Else
-            insertSQL = "INSERT INTO MONFORTEST (MACHINEADD, MODELADD, STATUSADD, ACTION_ID, " &
-           "START_TIME, FINISH_TIME, TOKEN_ID) " &
-           "VALUES (:machineadd, :modelAdd, :statusAdd, 0, SYSTIMESTAMP, " &
-           "NULL, :hashedToken)"
-        End If
-
-        command.CommandText = insertSQL
+        command.CommandText = updateActionSQL
         command.Parameters.Clear()
         command.Parameters.Add(New OracleParameter("machineadd", machineadd))
         command.Parameters.Add(New OracleParameter("modelAdd", modelAdd))
-        command.Parameters.Add(New OracleParameter("statusAdd", statusAdd))
-        command.Parameters.Add(New OracleParameter("hashedToken", hashedToken))
+        command.Parameters.Add(New OracleParameter("previousToken", previousTokenId))
 
-        LogMessage(String.Format("Executing Insert SQL with Token: {0}", insertSQL))
         rowsAffected += command.ExecuteNonQuery()
+        LogMessage(String.Format("Updated ACTION_ID to 1 for latest record with Token: {0}", previousTokenId))
+    End If
 
-        Return rowsAffected
-    End Function
+    ' สร้าง TOKEN_ID ใหม่ถ้าจำเป็น
+    If needNewToken Then
+        ' Get the current count of tokens for this machine-model combination
+        command.CommandText = "SELECT COUNT(DISTINCT TOKEN_ID) as TokenCount " &
+                    "FROM MONFORTEST " &
+                    "WHERE MACHINEADD = :machineadd " &
+                    "AND MODELADD = :modelAdd"
+        command.Parameters.Clear()
+        command.Parameters.Add(New OracleParameter("machineadd", machineadd))
+        command.Parameters.Add(New OracleParameter("modelAdd", modelAdd))
+
+        Dim tokenCount As Integer = CInt(command.ExecuteScalar()) + 1
+
+        ' Generate new token combining machine, model, and sequence number
+        Dim timestamp As DateTime = DateTime.Now
+        tokenId = String.Format("{0}{1}",
+                      timestamp.ToString("yyMMddHHmmss"),
+                      tokenCount.ToString().PadLeft(4, "0"c))
+
+        hashedToken = tokenId
+        LogMessage(String.Format("Generated new Token: {0} for Machine: {1}, Model: {2}", hashedToken, machineadd, modelAdd))
+    Else
+        ' ใช้ TOKEN_ID เดิม
+        hashedToken = previousTokenId
+        LogMessage(String.Format("Using existing Token: {0} for Machine: {1}, Model: {2}", hashedToken, machineadd, modelAdd))
+    End If
+
+    ' Insert new record with MINUTES_PASSED
+    Dim insertSQL As String
+    If statusAdd.ToLower() = "end" Then
+        insertSQL = "INSERT INTO MONFORTEST (MACHINEADD, MODELADD, STATUSADD, ACTION_ID, " &
+           "START_TIME, FINISH_TIME, TOKEN_ID, MINUTES_PASSED) " &
+           "VALUES (:machineadd, :modelAdd, :statusAdd, 1, SYSTIMESTAMP, " &
+           "SYSTIMESTAMP, :hashedToken, 0)"
+    Else
+        insertSQL = "INSERT INTO MONFORTEST (MACHINEADD, MODELADD, STATUSADD, ACTION_ID, " &
+           "START_TIME, FINISH_TIME, TOKEN_ID, MINUTES_PASSED) " &
+           "VALUES (:machineadd, :modelAdd, :statusAdd, 0, SYSTIMESTAMP, " &
+           "NULL, :hashedToken, 0)"
+    End If
+
+    command.CommandText = insertSQL
+    command.Parameters.Clear()
+    command.Parameters.Add(New OracleParameter("machineadd", machineadd))
+    command.Parameters.Add(New OracleParameter("modelAdd", modelAdd))
+    command.Parameters.Add(New OracleParameter("statusAdd", statusAdd))
+    command.Parameters.Add(New OracleParameter("hashedToken", hashedToken))
+
+    LogMessage(String.Format("Executing Insert SQL with Token: {0}", insertSQL))
+    rowsAffected += command.ExecuteNonQuery()
+
+    Return rowsAffected
+End Function
